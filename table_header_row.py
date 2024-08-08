@@ -49,7 +49,7 @@ class TableAreaJson:
         data = self.data_text
         # Nhóm các dòng theo tọa độ x của chúng để tạo thành các cột
         columns_by_y = self.group_lines_by_y(data, tolerance=cf.tolerance_row)
-        # columns_by_y = self.merge_overlapping_rows(columns_by_y,tolerance=10)
+        columns_by_y = self.merge_rows(columns_by_y)
         # Lấy key_title
         table_keys_title = TableHeaderRecognized(data)
         filtered_array, _ = table_keys_title.predict_title_value()
@@ -94,7 +94,7 @@ class TableAreaJson:
 
     def remove_trailing_abbreviations(self,text):
         '''Biểu thức chính quy tìm các từ thừa khi chúng xuất hiện riêng lẻ ở cuối câu'''
-        pattern = r'\b(th|tr|ch|thuy|Ly|Thu|la|thu|nhi|là)\b\s*$'
+        pattern = r'\b(th|tr|ch|thuy|Ly|Thu|la|thu|nhi|là|tri)\b\s*$'
         # Thay thế các từ tìm thấy bằng một chuỗi rỗng
         cleaned_text = re.sub(pattern, '', text)
         return cleaned_text
@@ -143,29 +143,38 @@ class TableAreaJson:
         for group_y, items in rows_by_y.items():
             sorted_rows_by_y[group_y] = sorted(items, key=lambda item: item['coordinates'][0][0])
         
+        print("SORT: ",  dict(sorted(sorted_rows_by_y.items())))
         return dict(sorted(sorted_rows_by_y.items()))
     
-    def merge_overlapping_rows(self,rows_by_y, tolerance=cf.tolerance_row):
-        '''Gộp các hàng có tọa độ y giao nhau'''
-        merged_rows = []
-        sorted_rows = sorted(rows_by_y.items())
+    def merge_rows(self, data):
+        merged_data = {}
+        sorted_keys = sorted(data.keys())
         
-        while sorted_rows:
-            base_y, base_data = sorted_rows.pop(0)
-            merged_data = base_data[:]
-            
-            i = 0
-            while i < len(sorted_rows):
-                other_y, other_data = sorted_rows[i]
-                if abs(other_y - base_y) <= tolerance:
-                    merged_data.extend(other_data)
-                    sorted_rows.pop(i)
+        def is_overlapping(y1_1, y2_1, y1_2, y2_2):
+            return not (y2_1 < y1_2 + 14 or y2_2 < y1_1 + 14)
+        
+        for key in sorted_keys:
+            if not merged_data:
+                merged_data[key] = data[key]
+            else:
+                last_key = list(merged_data.keys())[-1]
+                last_y1 = min(item['coordinates'][0][1] for item in merged_data[last_key])
+                last_y2 = max(item['coordinates'][2][1] for item in merged_data[last_key])
+                current_y1 = min(item['coordinates'][0][1] for item in data[key])
+                current_y2 = max(item['coordinates'][2][1] for item in data[key])
+                
+                if is_overlapping(last_y1, last_y2, current_y1, current_y2):
+                    # Merge the current row into the last row
+                    merged_data[last_key].extend(data[key])
                 else:
-                    i += 1
-            
-            merged_rows.append((base_y, sorted(merged_data, key=lambda item: item['coordinates'][0][0])))
+                    # Add as a new row
+                    merged_data[key] = data[key]
         
-        return dict(merged_rows)
+        # Sort the items within each row by their x coordinate
+        for key in merged_data.keys():
+            merged_data[key] = sorted(merged_data[key], key=lambda item: item['coordinates'][0][0])
+        
+        return merged_data
     
     def group_lines_by_x(self, text_boxes, tolerance=cf.tolerance_column):
         '''Phân loại Text vào các cột'''
